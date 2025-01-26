@@ -1,0 +1,211 @@
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local mouse = player:GetMouse()
+local removedObjects = {}
+local removeConnection
+
+local PlayerGui = player.PlayerGui
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = PlayerGui
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.ResetOnSpawn = false  
+
+local MainFrame = Instance.new("Frame")
+local OnButton = Instance.new("TextButton")
+local OffButton = Instance.new("TextButton")
+local UICorner = Instance.new("UICorner")
+local Dragging = false
+local DragStart = Vector3.new()
+local StartPos = Vector3.new()
+local isEnabled = false
+
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(169, 169, 169) 
+MainFrame.Size = UDim2.new(0, 150, 0, 80)  
+MainFrame.Position = UDim2.new(0.5, -75, 0.5, -40)
+MainFrame.Active = true
+MainFrame.Draggable = true 
+
+UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.Parent = MainFrame
+
+OnButton.Parent = MainFrame
+OnButton.Size = UDim2.new(0, 60, 0, 30) 
+OnButton.BackgroundColor3 = Color3.fromRGB(169, 169, 169) 
+OnButton.Text = "ON"
+OnButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+OnButton.Font = Enum.Font.GothamBold
+OnButton.TextSize = 16
+
+OffButton.Parent = MainFrame
+OffButton.Size = UDim2.new(0, 60, 0, 30) 
+OffButton.BackgroundColor3 = Color3.fromRGB(169, 169, 169) 
+OffButton.Text = "OFF"
+OffButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+OffButton.Font = Enum.Font.GothamBold
+OffButton.TextSize = 16
+
+OnButton.Position = UDim2.new(0.5, -75, 0.5, -20)  
+OffButton.Position = UDim2.new(0.5, 15, 0.5, -20)  
+
+local function toggleFunctionality(enable)
+    isEnabled = enable
+    if isEnabled then
+        print("Functionality Enabled")
+
+    else
+        print("Functionality Disabled")
+
+    end
+end
+
+OnButton.MouseButton1Click:Connect(function()
+    toggleFunctionality(true)
+end)
+
+OffButton.MouseButton1Click:Connect(function()
+    toggleFunctionality(false)
+end)
+
+local function updateCharacter(newCharacter)
+    character = newCharacter
+end
+
+player.CharacterAdded:Connect(function(newCharacter)
+    updateCharacter(newCharacter)
+end)
+
+local function isCharacterPart(part)
+    while part do
+        if part:IsA("Model") and part:FindFirstChild("Humanoid") then
+            return true
+        end
+        part = part.Parent
+    end
+    return false
+end
+
+local function isTerrain(part)
+    return part and part:IsA("Terrain")
+end
+
+local function getTarget()
+    if not character or not character:FindFirstChild("HumanoidRootPart") then
+        return nil
+    end
+
+    local origin = Workspace.CurrentCamera.CFrame.Position
+    local direction = (mouse.Hit.Position - origin).unit * 1000
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = {character}
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+
+    local result = Workspace:Raycast(origin, direction, params)
+    return result and result.Instance or nil
+end
+
+local function getFloorUnderPlayer()
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local rootPart = character.HumanoidRootPart
+        local downDirection = Vector3.new(0, -10, 0)
+        local params = RaycastParams.new()
+        params.FilterDescendantsInstances = {character}
+        params.FilterType = Enum.RaycastFilterType.Blacklist
+
+        local result = Workspace:Raycast(rootPart.Position, downDirection, params)
+        return result and result.Instance or nil
+    end
+    return nil
+end
+
+local function removeObject()
+    if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+        local target = getTarget()
+        local floor = getFloorUnderPlayer()
+
+        if target and target ~= floor and not isCharacterPart(target) and not isTerrain(target) and not removedObjects[target] then
+            removedObjects[target] = {parent = target.Parent, position = target.Position, orientation = target.Orientation}
+            target.Parent = nil
+        end
+    end
+end
+
+local function restoreObjects()
+    for part, data in pairs(removedObjects) do
+        if data.parent and not isTerrain(part) then
+            part.Parent = data.parent
+            part.Position = data.position
+            part.Orientation = data.orientation
+        end
+    end
+    removedObjects = {}
+
+    if removeConnection then
+        removeConnection:Disconnect()
+        removeConnection = nil
+    end
+end
+
+local function isHoldingWeapon()
+    local tool = player.Character and player.Character:FindFirstChildOfClass("Tool")
+    if tool then
+        local gunSettings = ReplicatedStorage:FindFirstChild("GunSettings")
+        if gunSettings then
+            for _, moduleScript in ipairs(gunSettings:GetChildren()) do
+                if moduleScript:IsA("ModuleScript") and tool.Name == moduleScript.Name then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if isEnabled then
+            removeConnection = RunService.RenderStepped:Connect(removeObject)
+        end
+    elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+        if isHoldingWeapon() then
+            UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        restoreObjects()
+    elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+        if isHoldingWeapon() then
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        end
+    end
+end)
+
+MainFrame.InputBegan:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Dragging = true
+        DragStart = input.Position
+        StartPos = MainFrame.Position
+    end
+end)
+
+MainFrame.InputChanged:Connect(function(input)
+    if Dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - DragStart
+        MainFrame.Position = UDim2.new(StartPos.X.Scale, StartPos.X.Offset + delta.X, StartPos.Y.Scale, StartPos.Y.Offset + delta.Y)
+    end
+end)
+
+MainFrame.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Dragging = false
+    end
+end)
